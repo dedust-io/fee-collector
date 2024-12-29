@@ -14,3 +14,4 @@ dist
 
 # VIM
 Session.vim
+package-lock.json
