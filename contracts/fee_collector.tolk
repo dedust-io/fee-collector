@@ -24,8 +24,8 @@ const TRANSFER_OP = 0x0f8a7ea5;
 const TRANSFER_NOTIFICATION_OP = 0x7362d09c;
 const PAYOUT_OP = 0x474f86cf;
 
-const CLAIM_JETTON_OP = 2;
-const CLAIM_TON_OP = 3;
+const CLAIM_JETTON_OP = "claimJetton"c;
+const CLAIM_TON_OP = "claimTON"c;
 
 @pure
 fun loadTaxBPS(mutate self: slice): int
@@ -47,31 +47,36 @@ fun transfer_packMessage(
     responseDestination: slice,
     customPayload: cell,
     forwardAmount: int,
-    eitherForwardPayload: builder
-): builder {
+    eitherForwardPayload: cell
+): cell {
     return beginCell()
-        .storeMessageOp(TRANSFER_OP)
-        .storeMessageQueryId(queryId)
+        .storeUint(TRANSFER_OP, 32)
+        .storeUint(queryId, 64)
         .storeCoins(amount)
         .storeSlice(destination)
         .storeSlice(responseDestination)
         .storeMaybeRef(customPayload)
         .storeCoins(forwardAmount)
-        .storeBuilder(eitherForwardPayload);
+        .storeMaybeRef(eitherForwardPayload)
+    .endCell();
 }
 
-
 @inline
-fun sendSimpleMessage(flags: int, destination: slice, value: int, body: builder, mode: int): int {
+fun sendSimpleMessage(flags: int, destination: slice, value: int, body: cell, mode: int) {
+    var bodyExist = 0;
+    if (body != null){
+        bodyExist = 1;
+    }
+
     var msg: cell = beginCell()
-    .storeUint(flags, 6)
-    .storeSlice(destination)
-    .storeCoins(value)
-    .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
-    .storeBuilder(body)
+        .storeUint(flags, 6)
+        .storeSlice(destination)
+        .storeCoins(value)
+        .storeUint(bodyExist, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .storeRef(body)
     .endCell();
 
-    return sendMessage(msg, mode);
+    sendRawMessage(msg, mode);
 }
 
 fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: slice) {
@@ -124,7 +129,7 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
                 recipientAddress,
                 null,
                 0,
-                beginCell().storeBool(false)
+                null
             ),
             SEND_MODE_CARRY_ALL_BALANCE
         );
@@ -151,9 +156,9 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
 
         sendSimpleMessage(
             BOUNCEABLE,
-            senderAddress,
+            recipientAddress,
             0,
-            beginCell(),
+            beginCell().endCell(),
             SEND_MODE_CARRY_ALL_BALANCE
         );
 
@@ -184,7 +189,7 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
                 senderAddress,
                 null,
                 0,
-                beginCell().storeBool(false)
+                null
             ),
             SEND_MODE_CARRY_ALL_BALANCE
         );
@@ -197,14 +202,14 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
         assert(isSliceBitsEqual(senderAddress, operatorAddress)) throw ERROR_OPERATOR_UNAUTHORIZED;
 
         val recipientAddress: slice = msgBody.loadAddress();
-        val payload: slice = msgBody;
+        val payload: cell = msgBody.loadMaybeRef();
 
         reserveToncoinsOnBalance(MINIMAL_BALANCE, RESERVE_MODE_AT_MOST);
         sendSimpleMessage(
             NON_BOUNCEABLE,
             recipientAddress,
             0,
-            beginCell().storeBuilder(payload),
+            payload,
             SEND_MODE_CARRY_ALL_BALANCE
         );
 
@@ -212,4 +217,8 @@ fun onInternalMessage(myBalance: int, msgValue: int, msgFull: cell, msgBody: sli
     }
 
     throw ERROR_UNKNONW_OP;
+}
+
+get operatorAddress(): slice {
+    return loadContractData();
 }
